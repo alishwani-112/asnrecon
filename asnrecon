@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Function to display error and exit
+fail() {
+    echo "[-] Error: $1"
+    exit 1
+}
+
+# Function to convert ASN to CIDR using asnmap
+asn_to_cidr() {
+    local asn="$1"
+    echo "$asn" | asnmap | tee cidr_from_asn
+}
+
+# Function to sort and combine CIDR ranges
+sort_and_combine_cidr() {
+    sort -t . -k 1,1n -k 2,2n -k 3,3n -k 4,4n cidr_from_asn | uniq > all_cidr
+}
+
+# Function to convert CIDR to IP using prips
+cidr_to_ip() {
+    local cidr_file="$1"
+    while IFS= read -r cidr; do
+        prips "$cidr" >> all_ips
+    done < "$cidr_file"
+}
+
+# Function to get hostnames from IPs using hakip2host
+get_hostnames() {
+    local ip_file="$1"
+    cat "$ip_file"|hakip2host |tee all_hostnames.txt
+}
+
+# Main function
+main() {
+    local asn=""
+    local cidr=""
+
+    while getopts ":a:c:h" opt; do
+        case $opt in
+            a)
+                asn="$OPTARG"
+                ;;
+            c)
+                cidr="$OPTARG"
+                ;;
+            h)
+                echo "Usage: $0 -a ASN -c CIDR"
+                exit 0
+                ;;
+            \?)
+                fail "Invalid option: -$OPTARG"
+                ;;
+            :)
+                fail "Option -$OPTARG requires an argument."
+                ;;
+        esac
+    done
+
+    # Check if either ASN or CIDR is provided
+    if [ -z "$asn" ] && [ -z "$cidr" ]; then
+        fail "Either ASN or CIDR is required. Use the -a and/or -c options."
+    fi
+
+    # Convert ASN to CIDR
+    if [ -n "$asn" ]; then
+        asn_to_cidr "$asn"
+        sort_and_combine_cidr
+    fi
+
+    # Use provided CIDR if available
+    if [ -n "$cidr" ]; then
+        cat "$cidr" > all_cidr
+    fi
+
+    # Convert CIDR to IP
+    cidr_to_ip all_cidr
+
+    # Get hostnames from IPs using hakip2host
+    get_hostnames all_ips
+
+    echo "Hostnames retrieved and saved to all_hostnames.txt"
+}
+
+# Run the main function with command-line arguments
+main "$@"
